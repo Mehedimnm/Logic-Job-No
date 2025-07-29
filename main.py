@@ -10,7 +10,7 @@ CORS(app) # নতুন লাইন
 LOGIN_URL = 'http://180.92.235.190:8022/erp/login.php'
 DATA_URL = 'http://180.92.235.190:8022/erp/production/reports/requires/sewing_input_and_output_report_controller.php'
 USERNAME = 'Clothing-cutting'
-PASSWORD = 'আপনার_সঠিক_পাসওয়ার্ড_দিন'
+PASSWORD = '489356'
 
 # --- লগইন ফর্মের সঠিক ফিল্ডের নাম ---
 login_payload = {
