@@ -1,23 +1,22 @@
 import requests
 from bs4 import BeautifulSoup
+from flask import Flask, request, jsonify
 
-# --- ধাপ ১: আপনার তথ্যগুলো পূরণ করুন ---
+app = Flask(__name__)
+
+# --- আপনার লগইন এবং অন্যান্য তথ্য ---
 LOGIN_URL = 'http://180.92.235.190:8022/erp/login.php'
-FORM_ACTION_URL = 'http://180.92.235.190:8022/erp/login.php'
 DATA_URL = 'http://180.92.235.190:8022/erp/production/reports/requires/sewing_input_and_output_report_controller.php'
 
 USERNAME = 'Clothing-cutting'
 PASSWORD = '489356'
 
-USERNAME_FIELD_NAME = 'txt_userid'
-PASSWORD_FIELD_NAME = 'txt_password'
-
-# --- লগইন করার জন্য ডেটা (Payload) ---
+# --- লগইন ফর্মের সঠিক ফিল্ডের নাম ---
 login_payload = {
     'hiddenUserIP': '',
     'hiddenUserMAC': '',
-    USERNAME_FIELD_NAME: USERNAME,
-    PASSWORD_FIELD_NAME: PASSWORD,
+    'txt_userid': USERNAME,
+    'txt_password': PASSWORD,
     'submit': 'Login',
     'txt_reset_user': '',
     'txt_reset_email': '',
@@ -35,40 +34,36 @@ data_headers = {
 # একটি সেশন অবজেক্ট তৈরি করা হচ্ছে যা কুকি মনে রাখবে
 session = requests.Session()
 
-try:
-    # --- ধাপ ২: লগইন করা ---
-    print("⏳ Logging in...")
-    login_response = session.post(FORM_ACTION_URL, data=login_payload)
-    login_response.raise_for_status()
+@app.route('/get_info', methods=['GET'])
+def get_sewing_info():
+    # URL থেকে রেফারেন্স নাম্বার নেওয়া হচ্ছে
+    txt_int_ref = request.args.get('ref')
 
-    if "logout" not in login_response.text.lower():
-        print("❌ Login failed. Please check credentials.")
-    else:
-        print("✅ Login successful!")
-        
-        # --- ধাপ ৩: তথ্য খোঁজা ---
-        txt_int_ref = input("🔢 Enter Reference (txt_int_ref): ")
-        found = False
+    if not txt_int_ref:
+        return jsonify({'status': 'error', 'message': 'Please provide a reference number using ?ref='}), 400
 
+    try:
+        # --- ধাপ ক: লগইন করা ---
+        login_response = session.post(LOGIN_URL, data=login_payload, timeout=15)
+        login_response.raise_for_status()
+
+        if "logout" not in login_response.text.lower():
+            return jsonify({'status': 'error', 'message': 'Login failed. Check credentials.'}), 401
+
+        # --- ধাপ খ: তথ্য খোঁজা ---
         for year in ['2025', '2024']:
             for company_id in range(1, 11):
                 data_payload = {
-                    'action': 'generate_report',
-                    'cbo_company_name': str(company_id),
-                    'hidden_job_id': '',
-                    'hidden_color_id': '',
-                    'cbo_year': year,
-                    'cbo_wo_company_name': '2',
-                    'cbo_location_name': '2',
-                    'hidden_floor_id': '',
-                    'hidden_line_id': '',
-                    'txt_int_ref': txt_int_ref,
-                    'type': '1',
+                    'action': 'generate_report', 'cbo_company_name': str(company_id),
+                    'hidden_job_id': '', 'hidden_color_id': '', 'cbo_year': year,
+                    'cbo_wo_company_name': '2', 'cbo_location_name': '2',
+                    'hidden_floor_id': '', 'hidden_line_id': '',
+                    'txt_int_ref': txt_int_ref, 'type': '1',
                     'report_title': '❏ Sewing Input and Output Report'
                 }
 
                 # লগইন করা সেশনটি ব্যবহার করে ডেটা রিকোয়েস্ট পাঠানো
-                response = session.post(DATA_URL, headers=data_headers, data=data_payload)
+                response = session.post(DATA_URL, headers=data_headers, data=data_payload, timeout=10)
 
                 if response.status_code == 200:
                     soup = BeautifulSoup(response.text, 'html.parser')
@@ -82,20 +77,19 @@ try:
                             buyer = td.find_next_sibling('td').get_text(strip=True)
 
                     if job_no or buyer:
-                        print('\n✅ তথ্য পাওয়া গেছে:')
-                        print(f'📅 Year: {year}')
-                        print(f'🏢 Company ID: {company_id}')
-                        if job_no:
-                            print('📌 Job No:', job_no)
-                        if buyer:
-                            print('📌 Buyer:', buyer)
-                        found = True
-                        break
-            if found:
-                break
-        
-        if not found:
-            print('\n❌ কোনো তথ্য পাওয়া যায়নি।')
+                        result = {
+                            'status': 'success', 'year': year, 'company_id': company_id,
+                            'job_no': job_no if job_no else 'N/A',
+                            'buyer': buyer if buyer else 'N/A'
+                        }
+                        return jsonify(result)
 
-except requests.exceptions.RequestException as e:
-    print(f"❌ An error occurred: {e}")
+        # সব চেষ্টা করার পরেও তথ্য না পাওয়া গেলে
+        return jsonify({'status': 'error', 'message': 'No information found for the given reference.'}), 404
+
+    except requests.exceptions.RequestException as e:
+        return jsonify({'status': 'error', 'message': f'An error occurred: {e}'}), 500
+
+if __name__ == "__main__":
+    # এই অংশটি শুধুমাত্র লোকাল টেস্টিং-এর জন্য, Render এটি ব্যবহার করবে না
+    app.run(host='0.0.0.0', port=8080)
